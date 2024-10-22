@@ -1,0 +1,504 @@
+﻿// COPYRIGHT (C) Tom. ALL RIGHTS RESERVED.
+// THE AntdUI PROJECT IS AN WINFORM LIBRARY LICENSED UNDER THE Apache-2.0 License.
+// LICENSED UNDER THE Apache License, VERSION 2.0 (THE "License")
+// YOU MAY NOT USE THIS FILE EXCEPT IN COMPLIANCE WITH THE License.
+// YOU MAY OBTAIN A COPY OF THE LICENSE AT
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING, SOFTWARE
+// DISTRIBUTED UNDER THE LICENSE IS DISTRIBUTED ON AN "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
+// SEE THE LICENSE FOR THE SPECIFIC LANGUAGE GOVERNING PERMISSIONS AND
+// LIMITATIONS UNDER THE License.
+// GITEE: https://gitee.com/antdui/AntdUI
+// GITHUB: https://github.com/AntdUI/AntdUI
+// CSDN: https://blog.csdn.net/v_132
+// QQ: 17379620
+
+using System;
+using System.ComponentModel;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
+
+namespace AntdUI
+{
+    /// <summary>
+    /// Alert 警告提示
+    /// </summary>
+    /// <remarks>警告提示，展现需要关注的信息。</remarks>
+    [Description("Alert 警告提示")]
+    [ToolboxItem(true)]
+    [DefaultProperty("Text")]
+    [Designer(typeof(IControlDesigner))]
+    public class Alert : IControl
+    {
+        #region 属性
+
+        int radius = 6;
+        /// <summary>
+        /// 圆角
+        /// </summary>
+        [Description("圆角"), Category("外观"), DefaultValue(6)]
+        public int Radius
+        {
+            get => radius;
+            set
+            {
+                if (radius == value) return;
+                radius = value;
+                Invalidate();
+            }
+        }
+
+        float borWidth = 0F;
+        /// <summary>
+        /// 边框宽度
+        /// </summary>
+        [Description("边框宽度"), Category("边框"), DefaultValue(0F)]
+        public float BorderWidth
+        {
+            get => borWidth;
+            set
+            {
+                if (borWidth == value) return;
+                borWidth = value;
+                Invalidate();
+            }
+        }
+
+        string? text = null;
+        /// <summary>
+        /// 文本
+        /// </summary>
+        [Description("文本"), Category("外观"), DefaultValue(null)]
+        public override string? Text
+        {
+            get => text;
+            set
+            {
+                if (text == value) return;
+                if (loop && string.IsNullOrEmpty(value))
+                {
+                    task?.Dispose();
+                    task = null;
+                }
+                font_size = null;
+                text = value;
+                Invalidate();
+                OnTextChanged(EventArgs.Empty);
+            }
+        }
+
+        string? textTitle = null;
+        /// <summary>
+        /// 标题
+        /// </summary>
+        [Description("标题"), Category("外观"), DefaultValue(null)]
+        public string? TextTitle
+        {
+            get => textTitle;
+            set
+            {
+                if (textTitle == value) return;
+                textTitle = value;
+                Invalidate();
+            }
+        }
+
+        TType icon = TType.None;
+        /// <summary>
+        /// 样式
+        /// </summary>
+        [Description("样式"), Category("外观"), DefaultValue(TType.None)]
+        public TType Icon
+        {
+            get => icon;
+            set
+            {
+                if (icon == value) return;
+                icon = value;
+                Invalidate();
+            }
+        }
+
+        bool loop = false;
+        /// <summary>
+        /// 文本轮播
+        /// </summary>
+        [Description("文本轮播"), Category("外观"), DefaultValue(false)]
+        public bool Loop
+        {
+            get => loop;
+            set
+            {
+                if (loop == value) return;
+                loop = value;
+                if (IsHandleCreated) StartTask();
+            }
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            if (loop) StartTask();
+        }
+
+        protected override void OnFontChanged(EventArgs e)
+        {
+            font_size = null;
+            base.OnFontChanged(e);
+        }
+
+        /// <summary>
+        /// 文本轮播速率
+        /// </summary>
+        [Description("文本轮播速率"), Category("外观"), DefaultValue(10)]
+        public int LoopSpeed { get; set; } = 10;
+
+        #region 动画
+
+        ITask? task = null;
+        private void StartTask()
+        {
+            task?.Dispose();
+            if (loop)
+            {
+                task = new ITask(this, () =>
+                {
+                    if (font_size.HasValue)
+                    {
+                        val += 1F;
+                        if (val > font_size.Value.Width)
+                        {
+                            if (Width > font_size.Value.Width) val = 0F;
+                            else val = -(Width - Padding.Horizontal);
+                        }
+                        Invalidate();
+                    }
+                    return loop;
+                }, LoopSpeed);
+            }
+            else Invalidate();
+        }
+
+        #endregion
+
+        #region 参数
+
+        float val = 0;
+        SizeF? font_size = null;
+
+        #endregion
+
+        /// <summary>
+        /// 显示区域（容器）
+        /// </summary>
+        public override Rectangle DisplayRectangle
+        {
+            get => ClientRectangle.DeflateRect(Padding);
+        }
+
+        #endregion
+
+        #region 渲染
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var rect = DisplayRectangle;
+            var g = e.Graphics.High();
+            if (icon == TType.None)
+            {
+                if (loop)
+                {
+                    if (font_size == null && !string.IsNullOrEmpty(text)) font_size = g.MeasureString(text, Font);
+                    if (font_size.HasValue)
+                    {
+                        g.SetClip(rect);
+                        PaintText(g, rect, font_size.Value, ForeColor);
+                        g.ResetClip();
+                    }
+                }
+                else
+                {
+                    if (string.IsNullOrEmpty(textTitle))
+                    {
+                        var size = g.MeasureString(text, Font);
+                        font_size = size;
+                        float icon_size = size.Height * 0.86F, gap = icon_size * 0.4F;
+
+                        using (var brush = new SolidBrush(ForeColor))
+                        {
+                            var rect_txt = new RectangleF(rect.X + gap, rect.Y, rect.Width - gap * 2, rect.Height);
+                            g.DrawStr(text, Font, brush, rect_txt, stringLeft);
+                        }
+                    }
+                    else
+                    {
+                        using (var font_title = new Font(Font.FontFamily, Font.Size * 1.14F, Font.Style))
+                        {
+                            var size_title = g.MeasureString(textTitle, font_title);
+                            float icon_size = size_title.Height * 1.2F, gap = icon_size * 0.5F;
+
+                            using (var brush = new SolidBrush(ForeColor))
+                            {
+                                var rect_txt = new RectangleF(rect.X + gap, rect.Y + gap, rect.Width - (gap * 2), size_title.Height);
+                                g.DrawStr(textTitle, font_title, brush, rect_txt, stringLeft);
+
+                                var desc_y = rect_txt.Bottom + icon_size * 0.33F;
+                                var rect_txt_desc = new RectangleF(rect_txt.X, desc_y, rect_txt.Width, rect.Height - (desc_y + gap));
+                                g.DrawStr(text, Font, brush, rect_txt_desc, stringLTEllipsis);
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                float _radius = radius * Config.Dpi;
+                Color back, bor_color, color = Style.Db.Text;
+                switch (icon)
+                {
+                    case TType.Success:
+                        back = Style.Db.SuccessBg;
+                        bor_color = Style.Db.SuccessBorder;
+                        break;
+                    case TType.Info:
+                        back = Style.Db.InfoBg;
+                        bor_color = Style.Db.InfoBorder;
+                        break;
+                    case TType.Warn:
+                        back = Style.Db.WarningBg;
+                        bor_color = Style.Db.WarningBorder;
+                        break;
+                    case TType.Error:
+                        back = Style.Db.ErrorBg;
+                        bor_color = Style.Db.ErrorBorder;
+                        break;
+                    default:
+                        back = Style.Db.SuccessBg;
+                        bor_color = Style.Db.SuccessBorder;
+                        break;
+                }
+                using (var path = rect.RoundPath(_radius))
+                {
+                    var sizeT = g.MeasureString(Config.NullText, Font);
+                    using (var brush = new SolidBrush(back))
+                    {
+                        g.FillPath(brush, path);
+                    }
+                    if (loop)
+                    {
+                        if (font_size == null && !string.IsNullOrEmpty(text)) font_size = g.MeasureString(text, Font);
+                        if (font_size.HasValue)
+                        {
+                            int icon_size = (int)(sizeT.Height * .86F), gap = (int)(icon_size * .4F);
+                            var rect_icon = new Rectangle(gap, rect.Y + (rect.Height - icon_size) / 2, icon_size, icon_size);
+                            PaintText(g, rect, rect_icon, font_size.Value, color, back, _radius);
+                            g.ResetClip();
+                            g.PaintIcons(icon, rect_icon, Style.Db.BgBase);
+                        }
+                    }
+                    else
+                    {
+                        var size = g.MeasureString(text, Font);
+                        font_size = size;
+                        if (string.IsNullOrEmpty(textTitle))
+                        {
+                            int icon_size = (int)(sizeT.Height * .86F), gap = (int)(icon_size * .4F);
+                            var rect_icon = new Rectangle(rect.X + gap, rect.Y + (rect.Height - icon_size) / 2, icon_size, icon_size);
+                            g.PaintIcons(icon, rect_icon, Style.Db.BgBase);
+                            using (var brush = new SolidBrush(color))
+                            {
+                                var rect_txt = new RectangleF(rect_icon.X + rect_icon.Width + gap, rect.Y, rect.Width - (rect_icon.Width + gap * 2), rect.Height);
+                                g.DrawStr(text, Font, brush, rect_txt, stringLeft);
+                            }
+                        }
+                        else
+                        {
+                            using (var font_title = new Font(Font.FontFamily, Font.Size * 1.14F, Font.Style))
+                            {
+                                var size_title = g.MeasureString(textTitle, font_title);
+                                int icon_size = (int)(sizeT.Height * 1.2F), gap = (int)(icon_size * .5F);
+
+                                var rect_icon = new Rectangle(rect.X + gap, rect.Y + gap, icon_size, icon_size);
+                                g.PaintIcons(icon, rect_icon, Style.Db.BgBase);
+
+                                using (var brush = new SolidBrush(color))
+                                {
+                                    var rect_txt = new RectangleF(rect_icon.X + rect_icon.Width + icon_size / 2F, rect_icon.Y, rect.Width - (rect_icon.Width + gap * 2), rect_icon.Height);
+                                    g.DrawStr(textTitle, font_title, brush, rect_txt, stringLeft);
+
+                                    var desc_y = rect_txt.Bottom + icon_size * 0.2F;
+                                    var rect_txt_desc = new RectangleF(rect_txt.X, desc_y, rect_txt.Width, rect.Height - (desc_y + gap));
+                                    g.DrawStr(text, Font, brush, rect_txt_desc, stringLTEllipsis);
+                                }
+                            }
+                        }
+                    }
+
+                    if (borWidth > 0)
+                    {
+                        using (var brush_bor = new Pen(bor_color, borWidth * Config.Dpi))
+                        {
+                            g.DrawPath(brush_bor, path);
+                        }
+                    }
+                }
+            }
+            this.PaintBadge(g);
+            base.OnPaint(e);
+        }
+
+        #region 渲染帮助
+
+        readonly StringFormat stringLTEllipsis = Helper.SF_Ellipsis(tb: StringAlignment.Near, lr: StringAlignment.Near);
+        readonly StringFormat stringCenter = Helper.SF_NoWrap();
+        readonly StringFormat stringLeft = Helper.SF_ALL(lr: StringAlignment.Near);
+
+        /// <summary>
+        /// 渲染文字
+        /// </summary>
+        /// <param name="g">GDI</param>
+        /// <param name="rect">区域</param>
+        /// <param name="size">文字大小</param>
+        /// <param name="fore">文字颜色</param>
+        void PaintText(Graphics g, RectangleF rect, SizeF size, Color fore)
+        {
+            using (var brush = new SolidBrush(fore))
+            {
+                if (string.IsNullOrEmpty(textTitle))
+                {
+                    var rect_txt = new RectangleF(rect.X - val, rect.Y, size.Width, rect.Height);
+                    g.DrawStr(text, Font, brush, rect_txt, stringCenter);
+                    if (rect.Width > size.Width)
+                    {
+                        var maxw = rect.Width + rect_txt.Width / 2;
+                        var rect_txt2 = new RectangleF(rect_txt.Right, rect_txt.Y, rect_txt.Width, rect_txt.Height);
+                        while (rect_txt2.X < maxw)
+                        {
+                            g.DrawStr(text, Font, brush, rect_txt2, stringCenter);
+                            rect_txt2.X = rect_txt2.Right;
+                        }
+                    }
+                }
+                else
+                {
+                    var size_title = g.MeasureString(textTitle, Font);
+                    var rect_txt = new RectangleF(rect.X + size_title.Width - val, rect.Y, size.Width, rect.Height);
+                    g.DrawStr(text, Font, brush, rect_txt, stringCenter);
+                    if (rect.Width > size.Width)
+                    {
+                        var maxw = rect.Width + rect_txt.Width / 2;
+                        var rect_txt2 = new RectangleF(rect_txt.Right, rect_txt.Y, rect_txt.Width, rect_txt.Height);
+                        while (rect_txt2.X < maxw)
+                        {
+                            g.DrawStr(text, Font, brush, rect_txt2, stringCenter);
+                            rect_txt2.X = rect_txt2.Right;
+                        }
+                    }
+
+                    var rect_icon_l = new RectangleF(rect.X, rect.Y, (size.Height + size_title.Width) * 2, rect.Height);
+                    using (var brush2 = new LinearGradientBrush(rect_icon_l, BackColor, Color.Transparent, 0F))
+                    {
+                        g.FillRectangle(brush2, rect_icon_l);
+                        g.FillRectangle(brush2, rect_icon_l);
+                    }
+                    g.DrawStr(TextTitle, Font, brush, new RectangleF(rect.X, rect.Y, size_title.Width, rect.Height), stringCenter);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 渲染文字（渐变遮罩）
+        /// </summary>
+        /// <param name="g">GDI</param>
+        /// <param name="rect">区域</param>
+        /// <param name="size">文字大小</param>
+        /// <param name="fore">文字颜色</param>
+        /// <param name="back">背景颜色</param>
+        void PaintText(Graphics g, RectangleF rect, RectangleF rect_icon, SizeF size, Color fore, Color back, float radius)
+        {
+            using (var brush_fore = new SolidBrush(fore))
+            {
+                var rect_txt = new RectangleF(rect.X - val, rect.Y, size.Width, rect.Height);
+
+                g.SetClip(new RectangleF(rect.X, rect_txt.Y + ((rect.Height - size.Height) / 2), rect.Width, size.Height));
+
+                g.DrawStr(text, Font, brush_fore, rect_txt, stringCenter);
+                if (rect.Width > size.Width)
+                {
+                    var maxw = rect.Width + rect_txt.Width / 2;
+                    var rect_txt2 = new RectangleF(rect_txt.Right, rect_txt.Y, rect_txt.Width, rect_txt.Height);
+                    while (rect_txt2.X < maxw)
+                    {
+                        g.DrawStr(text, Font, brush_fore, rect_txt2, stringCenter);
+                        rect_txt2.X = rect_txt2.Right;
+                    }
+                }
+
+                RectangleF rect_icon_l;
+                if (string.IsNullOrEmpty(textTitle))
+                {
+                    rect_icon_l = new RectangleF(rect.X, rect.Y, size.Height * 2, rect.Height);
+                    using (var brush = new LinearGradientBrush(rect_icon_l, back, Color.Transparent, 0F))
+                    {
+                        rect_icon_l.Width -= 1F;
+                        g.FillRectangle(brush, rect_icon_l);
+                        g.FillRectangle(brush, rect_icon_l);
+                    }
+                }
+                else
+                {
+                    var size_title = g.MeasureString(TextTitle, Font).Size();
+                    rect_icon_l = new RectangleF(rect.X, rect.Y, (size.Height + size_title.Width) * 2, rect.Height);
+                    using (var brush = new LinearGradientBrush(rect_icon_l, back, Color.Transparent, 0F))
+                    {
+                        g.FillRectangle(brush, rect_icon_l);
+                        g.FillRectangle(brush, rect_icon_l);
+                    }
+                    g.DrawStr(TextTitle, Font, brush_fore, new RectangleF(rect_icon.Right, rect.Y, size_title.Width, rect.Height), stringCenter);
+                }
+                var rect_icon_r = new RectangleF(rect.Right - rect_icon_l.Width, rect_icon_l.Y, rect_icon_l.Width, rect_icon_l.Height);
+                using (var brush = new LinearGradientBrush(rect_icon_r, Color.Transparent, back, 0F))
+                {
+                    rect_icon_r.X += 1F;
+                    rect_icon_r.Width -= 1F;
+                    g.FillRectangle(brush, rect_icon_r);
+                    g.FillRectangle(brush, rect_icon_r);
+                }
+            }
+        }
+
+        #endregion
+
+        public override Rectangle ReadRectangle
+        {
+            get => DisplayRectangle;
+        }
+
+        public override GraphicsPath RenderRegion
+        {
+            get => DisplayRectangle.RoundPath(radius * Config.Dpi);
+        }
+
+        #endregion
+
+        #region 事件
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            task?.Dispose();
+            base.OnMouseEnter(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            if (loop) StartTask();
+            base.OnMouseLeave(e);
+        }
+
+        #endregion
+    }
+}
